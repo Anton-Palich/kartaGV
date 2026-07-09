@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <title>Моя карта Красноярского края</title>
+
+    <!-- Основной Leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Плагин для KML (надёжный omnivore) -->
+    <script src="https://unpkg.com/leaflet-omnivore@0.3.4/leaflet-omnivore.min.js"></script>
+
+    <!-- Красивые маркеры -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-extra-markers@1.2.2/dist/css/leaflet.extra-markers.min.css">
+    <script src="https://unpkg.com/leaflet-extra-markers@1.2.2/dist/js/leaflet.extra-markers.min.js"></script>
+
+    <!-- Наш CSS (его можно редактировать визуально и сохранять) -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- Верхняя панель управления -->
+    <div class="control-panel">
+        <div class="panel-left">
+            <span class="panel-title">Карта Красноярского края</span>
+            <label>KML-файл:</label>
+            <input type="text" id="kmlUrl" placeholder="Ссылка на .kml">
+            <button id="loadKml" class="btn-green">Загрузить</button>
+            <button id="clearKml" class="btn-red">Удалить</button>
+            <span class="hint">или перетащите .kml на карту</span>
+        </div>
+        <div class="panel-right">
+            <button id="aboutBtn" class="btn-about">О проекте</button>
+            <div class="social-dropdown">
+                <button class="btn-social">Соцсети ▾</button>
+                <div class="social-list">
+                    <a href="https://vk.com/club240166804" target="_blank">ВКонтакте</a>
+                    <a href="#" target="_blank">Telegram</a>
+                </div>
+            </div>
+            <button id="designBtn" class="btn-design">🎨 Настроить дизайн</button>
+        </div>
+    </div>
+
+    <!-- Панель визуального редактора (скрыта по умолчанию) -->
+    <div id="designPanel" class="design-panel">
+        <h3>Настройка дизайна</h3>
+        <div class="design-grid">
+            <label>Фон панели:</label>
+            <input type="color" id="panelBg" value="#ffffff">
+            <label>Цвет текста панели:</label>
+            <input type="color" id="panelText" value="#4a6741">
+            <label>Цвет кнопок:</label>
+            <input type="color" id="btnColor" value="#c4d9b7">
+            <label>Текст кнопок:</label>
+            <input type="color" id="btnTextColor" value="#2d4522">
+            <label>Фон страницы:</label>
+            <input type="color" id="pageBg" value="#f5f0e8">
+            <label>Тень панели:</label>
+            <input type="range" id="panelShadow" min="0" max="10" value="2"> px
+        </div>
+        <div class="design-actions">
+            <button id="saveCssBtn" class="btn-green">💾 Сохранить CSS</button>
+            <button id="closeDesignBtn" class="btn-red">✖ Закрыть редактор</button>
+        </div>
+    </div>
+
+    <!-- Модальное окно "О проекте" -->
+    <div id="aboutModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>О проекте</h2>
+            <p>Здесь вы можете разместить описание вашего проекта.</p>
+        </div>
+    </div>
+
+    <!-- Карта -->
+    <div id="map"></div>
+
+    <script>
+        // ---------- Карта и слои ----------
+        var map = L.map('map').setView([56.015, 92.893], 6);
+
+        // Базовые подложки
+        var osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap', maxZoom: 19
+        });
+        var esriSatellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Esri, Maxar, Earthstar Geographics', maxZoom: 19
+        });
+        var yandexMap = L.tileLayer('https://core-renderer-tiles.maps.yandex.net/tiles?l=map&v=25.03.01&z={z}&x={x}&y={y}&scale=2&lang=ru_RU&apikey=c0d1c5f6-78cb-43ef-890b-b8e9013229d6', {
+            attribution: '© Яндекс.Карты', maxZoom: 19
+        });
+        var yandexSat = L.tileLayer('https://core-renderer-tiles.maps.yandex.net/tiles?l=sat&v=25.03.01&z={z}&x={x}&y={y}&scale=2&lang=ru_RU&apikey=c0d1c5f6-78cb-43ef-890b-b8e9013229d6', {
+            attribution: '© Яндекс.Спутник', maxZoom: 19
+        });
+        var gis2Layer = L.tileLayer('https://tile1.maps.2gis.com/tiles?x={x}&y={y}&z={z}', {
+            attribution: '© 2ГИС', maxZoom: 19
+        });
+        osmLayer.addTo(map);
+
+        // Дополнительные слои (наложения)
+        var reliefLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Shaded_Relief/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Esri', opacity: 0.5, maxZoom: 13
+        });
+        var historicLayer = L.tileLayer('https://mapwarper.net/maps/tile/109101/{z}/{x}/{y}.png', {
+            attribution: 'Историческая карта (MapWarper)', opacity: 0.7, maxZoom: 18
+        });
+
+        // Переключатель слоёв
+        var baseMaps = {
+            "OpenStreetMap": osmLayer,
+            "Спутник Esri": esriSatellite,
+            "Яндекс.Карты": yandexMap,
+            "Яндекс.Спутник": yandexSat,
+            "2ГИС": gis2Layer
+        };
+        var overlayMaps = {
+            "Рельеф (пример)": reliefLayer,
+            "Историческая карта": historicLayer
+        };
+        L.control.layers(baseMaps, overlayMaps).addTo(map);
+
+        // Примеры меток и объектов
+        var redIcon = L.ExtraMarkers.icon({ icon: 'fa-number', number: '1', markerColor: 'red' });
+        L.marker([56.01, 92.87], {icon: redIcon}).addTo(map)
+            .bindPopup('<h3>Красноярск</h3><p>Центр города</p>');
+        L.marker([55.99, 92.80]).addTo(map).bindPopup("<b>Смотровая площадка</b>");
+        L.polygon([[55.95,92.72],[55.92,92.82],[55.87,92.78],[55.89,92.68],[55.93,92.66]], {
+            color: 'green', fillColor: '#0f0', fillOpacity: 0.2
+        }).addTo(map).bindPopup("Заповедник «Столбы»");
+        L.polyline([[56.00,92.85],[56.02,92.93],[56.04,92.98],[56.06,93.05]], {
+            color: 'blue', weight: 4
+        }).addTo(map).bindPopup("Маршрут вдоль Енисея");
+
+        // ========== РАБОТА С KML (ИНТЕРАКТИВНЫЕ МЕТКИ) ==========
+        var kmlLayer = null;
+
+        // Функция добавления popup к объектам KML
+        function bindKmlPopups(layerGroup) {
+            layerGroup.eachLayer(function(layer) {
+                if (layer.feature && layer.feature.properties && layer.feature.properties.description) {
+                    layer.bindPopup(layer.feature.properties.description);
+                }
+            });
+        }
+
+        // Загрузка по ссылке
+        function loadKmlFromUrl(url) {
+            if (kmlLayer) map.removeLayer(kmlLayer);
+            fetch(url)
+                .then(response => response.text())
+                .then(kmlString => {
+                    kmlLayer = omnivore.kml.parse(kmlString);
+                    kmlLayer.on('ready', function() {
+                        bindKmlPopups(kmlLayer);
+                        map.fitBounds(kmlLayer.getBounds());
+                    });
+                    kmlLayer.addTo(map);
+                })
+                .catch(error => alert('Ошибка загрузки KML: ' + error));
+        }
+
+        document.getElementById('loadKml').addEventListener('click', function() {
+            var url = document.getElementById('kmlUrl').value.trim();
+            if (url) loadKmlFromUrl(url);
+            else alert('Вставь ссылку на KML-файл');
+        });
+
+        document.getElementById('clearKml').addEventListener('click', function() {
+            if (kmlLayer) { map.removeLayer(kmlLayer); kmlLayer = null; }
+        });
+
+        // Перетаскивание KML на карту
+        var mapContainer = document.getElementById('map');
+        mapContainer.addEventListener('dragover', function(e) { e.preventDefault(); });
+        mapContainer.addEventListener('drop', function(e) {
+            e.preventDefault();
+            var file = e.dataTransfer.files[0];
+            if (file && file.name.endsWith('.kml')) {
+                var reader = new FileReader();
+                reader.onload = function(ev) {
+                    if (kmlLayer) map.removeLayer(kmlLayer);
+                    kmlLayer = omnivore.kml.parse(ev.target.result);
+                    kmlLayer.on('ready', function() {
+                        bindKmlPopups(kmlLayer);
+                        map.fitBounds(kmlLayer.getBounds());
+                    });
+                    kmlLayer.addTo(map);
+                };
+                reader.readAsText(file);
+            } else {
+                alert('Перетащите файл с расширением .kml');
+            }
+        });
+
+        // Модальное окно "О проекте"
+        var modal = document.getElementById('aboutModal');
+        var aboutBtn = document.getElementById('aboutBtn');
+        var closeSpan = document.getElementsByClassName('close')[0];
+        aboutBtn.onclick = function() { modal.style.display = 'block'; }
+        closeSpan.onclick = function() { modal.style.display = 'none'; }
+        window.onclick = function(event) {
+            if (event.target == modal) { modal.style.display = 'none'; }
+        }
+
+        // ========== ВИЗУАЛЬНЫЙ РЕДАКТОР CSS ==========
+        const designPanel = document.getElementById('designPanel');
+        const designBtn = document.getElementById('designBtn');
+        const closeDesignBtn = document.getElementById('closeDesignBtn');
+        const saveCssBtn = document.getElementById('saveCssBtn');
+        const root = document.documentElement;
+
+        // Инициализация CSS-переменных (дублирует style.css, чтобы редактор синхронизировался)
+        root.style.setProperty('--panel-bg', '#ffffff');
+        root.style.setProperty('--panel-text', '#4a6741');
+        root.style.setProperty('--btn-bg', '#c4d9b7');
+        root.style.setProperty('--btn-text', '#2d4522');
+        root.style.setProperty('--page-bg', '#f5f0e8');
+        root.style.setProperty('--panel-shadow', '2px');
+
+        // Открытие/закрытие редактора
+        designBtn.addEventListener('click', () => { designPanel.style.display = 'block'; });
+        closeDesignBtn.addEventListener('click', () => { designPanel.style.display = 'none'; });
+
+        // Обработчики изменений — сразу применяют стиль к странице
+        document.getElementById('panelBg').addEventListener('input', e => root.style.setProperty('--panel-bg', e.target.value));
+        document.getElementById('panelText').addEventListener('input', e => root.style.setProperty('--panel-text', e.target.value));
+        document.getElementById('btnColor').addEventListener('input', e => root.style.setProperty('--btn-bg', e.target.value));
+        document.getElementById('btnTextColor').addEventListener('input', e => root.style.setProperty('--btn-text', e.target.value));
+        document.getElementById('pageBg').addEventListener('input', e => root.style.setProperty('--page-bg', e.target.value));
+        document.getElementById('panelShadow').addEventListener('input', e => root.style.setProperty('--panel-shadow', e.target.value + 'px'));
+
+        // Сохранение CSS в файл
+        saveCssBtn.addEventListener('click', async () => {
+            const vars = {
+                panelBg: getComputedStyle(root).getPropertyValue('--panel-bg').trim(),
+                panelText: getComputedStyle(root).getPropertyValue('--panel-text').trim(),
+                btnBg: getComputedStyle(root).getPropertyValue('--btn-bg').trim(),
+                btnText: getComputedStyle(root).getPropertyValue('--btn-text').trim(),
+                pageBg: getComputedStyle(root).getPropertyValue('--page-bg').trim(),
+                shadow: getComputedStyle(root).getPropertyValue('--panel-shadow').trim()
+            };
+
+            const cssContent = `/* =========================================
+   Оформление в стиле retromap.ru
+   Сгенерировано визуальным редактором
+   ========================================= */
+
+:root {
+    --panel-bg: ${vars.panelBg};
+    --panel-text: ${vars.panelText};
+    --btn-bg: ${vars.btnBg};
+    --btn-text: ${vars.btnText};
+    --page-bg: ${vars.pageBg};
+    --panel-shadow: ${vars.shadow};
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: var(--page-bg);
+}
+
+#map {
+    width: 100%;
+    height: calc(100vh - 70px);
+    border-top: 3px solid #c7b199;
+}
+
+/* Верхняя панель */
+.control-panel {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    background: var(--panel-bg);
+    padding: 8px 20px;
+    box-shadow: 0 var(--panel-shadow) 8px rgba(0,0,0,0.08);
+    border-bottom: 2px solid #a8c3a0;
+    min-height: 60px;
+}
+
+.panel-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.panel-title {
+    font-weight: bold;
+    font-size: 18px;
+    color: var(--panel-text);
+    margin-right: 20px;
+    letter-spacing: 0.5px;
+}
+
+.panel-left label {
+    font-size: 14px;
+    color: #5a5a5a;
+}
+
+.control-panel input[type="text"] {
+    width: 260px;
+    padding: 6px 10px;
+    border: 1px solid #c2d0b8;
+    border-radius: 4px;
+    font-size: 14px;
+    background: #fafdf7;
+    transition: border-color 0.3s;
+}
+.control-panel input[type="text"]:focus {
+    outline: none;
+    border-color: #88a87c;
+}
+
+button {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: background 0.2s, opacity 0.2s;
+}
+
+/* Зелёная кнопка */
+.btn-green {
+    background: var(--btn-bg);
+    color: var(--btn-text);
+    border: 1px solid #9bb78b;
+}
+.btn-green:hover {
+    background: #b0cba0;
+}
+
+/* Красная кнопка */
+.btn-red {
+    background: #f0cece;
+    color: #6d2a2a;
+    border: 1px solid #d4a0a0;
+}
+.btn-red:hover {
+    background: #e8baba;
+}
+
+.hint {
+    color: #888;
+    font-size: 12px;
+    font-style: italic;
+}
+
+.panel-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.btn-about, .btn-social, .btn-design {
+    background: #faf6ed;
+    color: #5e4b3c;
+    border: 1px solid #cfc2ae;
+    font-weight: 600;
+}
+.btn-about:hover, .btn-social:hover, .btn-design:hover {
+    background: #f0e8d5;
+}
+
+/* Выпадающее меню соцсетей */
+.social-dropdown {
+    position: relative;
+    display: inline-block;
+}
+.social-list {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: 100%;
+    margin-top: 4px;
+    background: #ffffff;
+    border: 1px solid #cfc2ae;
+    border-radius: 4px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    z-index: 1000;
+    min-width: 140px;
+}
+.social-list a {
+    display: block;
+    padding: 8px 16px;
+    color: var(--panel-text);
+    text-decoration: none;
+    font-size: 14px;
+    border-bottom: 1px solid #f0f0f0;
+}
+.social-list a:hover {
+    background: #edf5e6;
+}
+.social-list a:last-child {
+    border-bottom: none;
+}
+.social-dropdown:hover .social-list {
+    display: block;
+}
+
+/* Модальное окно */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 2000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.4);
+}
+.modal-content {
+    background: #fffaf2;
+    margin: 10% auto;
+    padding: 25px;
+    border: 1px solid #cfc2ae;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 600px;
+    max-height: 70vh;
+    overflow-y: auto;
+    box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+    font-family: 'Segoe UI', Arial, sans-serif;
+    color: #3a3a3a;
+    line-height: 1.6;
+}
+.close {
+    color: #888;
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+}
+.close:hover {
+    color: #c44;
+}
+.modal-content h2 {
+    color: var(--panel-text);
+    margin-bottom: 15px;
+    font-size: 24px;
+    border-bottom: 2px solid var(--btn-bg);
+    padding-bottom: 8px;
+}
+.modal-content p {
+    margin-bottom: 12px;
+}
+
+/* Панель редактора */
+.design-panel {
+    display: none;
+    background: #ffffff;
+    border-bottom: 2px solid #a8c3a0;
+    padding: 15px 20px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
+.design-panel h3 {
+    color: var(--panel-text);
+    margin-bottom: 10px;
+}
+.design-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 15px;
+}
+.design-grid label {
+    font-size: 14px;
+    color: #5a5a5a;
+}
+.design-actions {
+    display: flex;
+    gap: 10px;
+}
+
+@media (max-width: 768px) {
+    .control-panel {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 10px;
+    }
+    .panel-left, .panel-right {
+        width: 100%;
+        justify-content: space-between;
+    }
+    .control-panel input[type="text"] {
+        width: 200px;
+    }
+}`;
+
+            try {
+                const handle = await window.showSaveFilePicker({
+                    suggestedName: 'style.css',
+                    types: [{ description: 'CSS файл', accept: {'text/css': ['.css']} }]
+                });
+                const writable = await handle.createWritable();
+                await writable.write(cssContent);
+                await writable.close();
+                alert('Файл style.css успешно сохранён! Обновите страницу, чтобы увидеть окончательный результат.');
+            } catch (err) {
+                if (err.name !== 'AbortError') {
+                    alert('Ошибка сохранения: ' + err.message);
+                }
+            }
+        });
+    </script>
+</body>
+</html>
